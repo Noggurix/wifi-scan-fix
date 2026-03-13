@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch Wi-Fi state and force scan
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=__USER_HOME__/.local/bin/__WATCHER_NAME__
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "watcher started $(date)"
+
+INTERFACE="__WIFI_INTERFACE__"
+last_state=""
+
+while true; do
+	state="$("/usr/bin/nmcli" radio wifi 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+
+	if [[ "$state" == "enabled" && "$last_state" != "enabled" ]]; then
+		echo "$(date) wifi enabled, triggering scan on interface=$INTERFACE"
+		sleep 1
+		/usr/bin/sudo -n /usr/local/bin/wifi-scan-fix-helper
+		echo "$(date) scan exit=$?"
+	fi
+
+	last_state="$state"
+	sleep 3
+done

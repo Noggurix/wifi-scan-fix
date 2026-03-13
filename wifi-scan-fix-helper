@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+/usr/bin/iw dev __WIFI_INTERFACE__ scan >/dev/null 2>&1

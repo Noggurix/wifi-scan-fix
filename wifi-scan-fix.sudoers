@@ -1,0 +1,1 @@
+__TARGET_USER__ ALL=(root) NOPASSWD: /usr/local/bin/wifi-scan-fix-helper
