@@ -1,21 +1,90 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
-echo "watcher started $(date)"
+readonly INTERFACE="__WIFI_INTERFACE__"
+readonly POLL_INTERVAL=3
+readonly SCAN_MAX_ATTEMPTS=3
+readonly SCAN_RETRY_INTERVAL=2
 
-INTERFACE="__WIFI_INTERFACE__"
-last_state=""
+last_state="unknown"
+query_failed=0
+
+log() {
+	printf '%s %s\n' "$(/usr/bin/date --iso-8601=seconds)" "$*"
+}
+
+read_wifi_state() {
+	local state
+
+	if ! state="$(
+		LC_ALL=C /usr/bin/nmcli radio wifi 2>/dev/null |
+			LC_ALL=C /usr/bin/tr '[:upper:]' '[:lower:]'
+	)"; then
+		return 1
+	fi
+
+	case "$state" in
+	enabled | disabled)
+		printf '%s\n' "$state"
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+trigger_scan() {
+	local attempt
+	local exit_code
+
+	for ((attempt = 1; attempt <= SCAN_MAX_ATTEMPTS; attempt++)); do
+		if /usr/bin/sudo -n /usr/local/bin/wifi-scan-fix-helper; then
+			log "scan completed interface=$INTERFACE attempt=$attempt"
+			return 0
+		else
+			exit_code=$?
+		fi
+
+		if ((attempt < SCAN_MAX_ATTEMPTS)); then
+			log "scan failed interface=$INTERFACE exit=$exit_code attempt=$attempt/$SCAN_MAX_ATTEMPTS; retrying"
+			sleep "$SCAN_RETRY_INTERVAL"
+		else
+			log "scan failed interface=$INTERFACE exit=$exit_code attempts=$SCAN_MAX_ATTEMPTS; giving up until next Wi-Fi enable"
+		fi
+	done
+
+	return "$exit_code"
+}
+
+log "watcher started interface=$INTERFACE"
 
 while true; do
-	state="$("/usr/bin/nmcli" radio wifi 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+	if state="$(read_wifi_state)"; then
+		if ((query_failed)); then
+			log "Wi-Fi state query recovered state=$state"
+			query_failed=0
+		fi
+	else
+		if ((!query_failed)); then
+			log "failed to query Wi-Fi state"
+			query_failed=1
+		fi
+
+		# A transition may have occurred while the state was unavailable.
+		# Treat the recovered state as new so an enabled radio receives
+		# a preventive scan.
+		last_state="unknown"
+
+		sleep "$POLL_INTERVAL"
+		continue
+	fi
 
 	if [[ "$state" == "enabled" && "$last_state" != "enabled" ]]; then
-		echo "$(date) wifi enabled, triggering scan on interface=$INTERFACE"
+		log "Wi-Fi enabled; triggering scan interface=$INTERFACE"
 		sleep 1
-		/usr/bin/sudo -n /usr/local/bin/wifi-scan-fix-helper
-		echo "$(date) scan exit=$?"
+		trigger_scan || true
 	fi
 
 	last_state="$state"
-	sleep 3
+	sleep "$POLL_INTERVAL"
 done
